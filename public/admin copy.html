@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mariki Pub Quizz – Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  />
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      display: grid;
+      grid-template-columns: 350px 1fr;
+      height: 100vh;
+    }
+    aside {
+      padding: 12px;
+      border-right: 1px solid #e5e7eb;
+      box-sizing: border-box;
+      overflow-y: auto;
+    }
+    #map { height: 100vh; width: 100%; }
+
+    .label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 4px;
+      display: block;
+    }
+    input, select, button { font-family: inherit; }
+
+    input[type="number"] { width: 49%; padding: 6px; margin-bottom: 4px; }
+    select { width: 100%; padding: 6px; margin-bottom: 8px; }
+
+    button {
+      padding: 8px 10px;
+      margin-top: 4px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-primary { background: #0ea5e9; color: white; }
+    .btn-secondary { background: #e5e7eb; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    th, td {
+      padding: 4px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .badge-open {
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #22c55e22;
+      color: #15803d;
+      font-size: 11px;
+      margin-left: 4px;
+    }
+    .badge-closed {
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #fecaca;
+      color: #b91c1c;
+      font-size: 11px;
+      margin-left: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <aside>
+    <h2>Admin</h2>
+
+    <label class="label">New round name</label>
+    <input id="new-round-name" type="text" placeholder="e.g. Landmark Round" />
+    <button class="btn-secondary" id="add-round">Add round</button>
+
+    <hr>
+
+    <label class="label">Select Round</label>
+    <select id="round-select"></select>
+    <div id="round-status" style="font-size:12px;color:#6b7280;margin-bottom:6px;"></div>
+
+    <button class="btn-secondary" id="toggle-open">Toggle open/closed</button>
+
+    <hr>
+
+    <label class="label">Set Target</label>
+    <div>
+      <input id="target-lat" type="number" step="any" placeholder="Latitude">
+      <input id="target-lng" type="number" step="any" placeholder="Longitude">
+    </div>
+    <button class="btn-primary" id="set-target">Set target</button>
+    <div id="target-info" style="font-size:12px;color:#6b7280;margin-top:6px;">No target set.</div>
+
+    <h3>Guesses</h3>
+    <div id="results"></div>
+
+    <h3>Leaderboard (Total Points)</h3>
+    <div id="leaderboard"></div>
+
+  </aside>
+
+  <div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// --------------------
+// MAP INITIAL SETUP
+// --------------------
+const map = L.map('map', { worldCopyJump: true }).setView([20, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// Detect user manual zoom/pan → stop autoreset
+let userAdjustedView = false;
+map.on('zoomend moveend', () => userAdjustedView = true);
+
+let markerTarget = null;
+let mapLayers = []; // markers + lines
+let roundsCache = [];
+let currentRoundId = null;
+
+// --------------------
+// COLOR ASSIGNMENT
+// --------------------
+const colors = ['#ef4444','#3b82f6','#22c55e','#f59e0b','#a855f7','#06b6d4','#e11d48','#14b8a6','#f97316','#84cc16'];
+const teamColors = new Map();
+function colorForTeam(name) {
+  if (!teamColors.has(name)) {
+    const idx = teamColors.size % colors.length;
+    teamColors.set(name, colors[idx]);
+  }
+  return teamColors.get(name);
+}
+
+function fmt(lat, lng) {
+  return `${(+lat).toFixed(5)}, ${(+lng).toFixed(5)}`;
+}
+
+function hav(lat1, lon1, lat2, lon2) {
+  const R = 6371.0088;
+  const toRad = v => v * Math.PI/180;
+  const dLat = toRad(lat2-lat1);
+  const dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+            Math.sin(dLon/2)**2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// --------------------
+// LOAD ROUNDS
+// --------------------
+async function loadRounds() {
+  const res = await fetch('/api/rounds');
+  roundsCache = await res.json();
+
+  const sel = $('round-select');
+  sel.innerHTML = '';
+
+  roundsCache.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name + (r.isOpen ? " (open)" : " (closed)");
+    sel.appendChild(opt);
+  });
+
+  if (!roundsCache.length) return;
+
+  if (!currentRoundId || !roundsCache.some(r => r.id === currentRoundId)) {
+    currentRoundId = roundsCache[0].id;
+  }
+
+  sel.value = currentRoundId;
+  updateRoundStatus();
+  updateTargetUI();
+  refreshGuesses();
+  updateLeaderboard();
+}
+
+// --------------------
+// ROUND STATUS
+// --------------------
+function updateRoundStatus() {
+  const r = roundsCache.find(x => x.id === currentRoundId);
+  if (!r) return;
+
+  $('round-status').innerHTML =
+    `<strong>${r.name}</strong> ` +
+    (r.isOpen ? `<span class="badge-open">OPEN</span>`
+              : `<span class="badge-closed">CLOSED</span>`);
+}
+
+// --------------------
+// TARGET UI
+// --------------------
+function clearTarget() {
+  if (markerTarget) {
+    map.removeLayer(markerTarget);
+    markerTarget = null;
+  }
+}
+
+function updateTargetUI() {
+  const r = roundsCache.find(x => x.id === currentRoundId);
+  clearTarget();
+
+  if (!r || !r.target) {
+    $('target-info').textContent = "No target set.";
+    $('target-lat').value = "";
+    $('target-lng').value = "";
+    return;
+  }
+
+  const { lat, lng } = r.target;
+
+  $('target-info').textContent = "Target: " + fmt(lat, lng);
+  $('target-lat').value = lat;
+  $('target-lng').value = lng;
+
+  markerTarget = L.marker([lat, lng]).addTo(map);
+  markerTarget.bindTooltip("TARGET<br>" + fmt(lat, lng), {
+    permanent: true, offset:[0,-10]
+  });
+
+  if (!userAdjustedView) {
+    map.setView([lat, lng], 10);
+  }
+}
+
+// --------------------
+// EVENT: CHANGE ROUND
+// --------------------
+$('round-select').addEventListener('change', e => {
+  currentRoundId = e.target.value;
+  userAdjustedView = false; // allow autosnap once
+  updateRoundStatus();
+  updateTargetUI();
+  refreshGuesses();
+});
+
+// --------------------
+// ADD ROUND
+// --------------------
+$('add-round').addEventListener('click', async () => {
+  const name = $('new-round-name').value.trim();
+  await fetch('/api/round', {
+    method:"POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ name })
+  });
+  $('new-round-name').value = "";
+  await loadRounds();
+});
+
+// --------------------
+// TOGGLE OPEN/CLOSED
+// --------------------
+$('toggle-open').addEventListener('click', async () => {
+  const r = roundsCache.find(x => x.id === currentRoundId);
+  if (!r) return;
+  const newState = !r.isOpen;
+
+  await fetch('/api/round-status', {
+    method:"POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ id: currentRoundId, isOpen:newState })
+  });
+
+  await loadRounds();
+});
+
+// --------------------
+// SET TARGET
+// --------------------
+$('set-target').addEventListener('click', async () => {
+  const lat = parseFloat($('target-lat').value);
+  const lng = parseFloat($('target-lng').value);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    alert("Enter numeric values");
+    return;
+  }
+  await fetch('/api/round-target', {
+    method:"POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ id: currentRoundId, lat, lng })
+  });
+
+  await loadRounds();
+});
+
+// --------------------
+// MAP LAYERS
+// --------------------
+function clearMapLayers() {
+  mapLayers.forEach(layer => map.removeLayer(layer));
+  mapLayers = [];
+}
+
+// --------------------
+// DELETE GUESS (ADMIN)
+// --------------------
+async function deleteGuess(encodedTeam) {
+  const team = decodeURIComponent(encodedTeam);
+  if (!currentRoundId) return;
+  const ok = confirm(`Delete guess for "${team}" in this round?`);
+  if (!ok) return;
+
+  await fetch('/api/delete-guess', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify({ roundId: currentRoundId, teamName: team })
+  });
+
+  await refreshGuesses();
+  await updateLeaderboard();
+}
+
+// --------------------
+// REFRESH GUESSES
+// --------------------
+async function refreshGuesses() {
+  if (!currentRoundId) return;
+
+  const res = await fetch('/api/guesses?roundId='+currentRoundId);
+  const data = await res.json();
+
+  clearMapLayers();
+
+  const round = roundsCache.find(r => r.id === currentRoundId);
+  const tgt = round && round.target ? round.target : null;
+
+  const rows = [];
+  const points = [];
+
+  if (tgt) {
+    points.push([tgt.lat, tgt.lng]);
+  }
+
+  for (const [team, g] of Object.entries(data)) {
+    const color = colorForTeam(team);
+
+    // Team marker
+    const m = L.circleMarker([g.lat, g.lng], {
+      radius: 8,
+      color,
+      fillColor:color,
+      fillOpacity:.9
+    }).addTo(map);
+    m.bindTooltip(`${team}<br>${fmt(g.lat, g.lng)}`);
+    mapLayers.push(m);
+    points.push([g.lat, g.lng]);
+
+    // Colored line from guess to target
+    if (tgt) {
+      const line = L.polyline([[g.lat, g.lng],[tgt.lat, tgt.lng]], {
+        color,
+        weight: 2,
+        opacity: 0.8
+      }).addTo(map);
+      mapLayers.push(line);
+    }
+
+    let dist = tgt ? hav(g.lat, g.lng, tgt.lat, tgt.lng) : null;
+    rows.push({ team, lat:g.lat, lng:g.lng, dist });
+  }
+
+  if (points.length && !userAdjustedView) {
+    const b = L.latLngBounds(points).pad(0.2);
+    map.fitBounds(b, { maxZoom: 16 });
+  }
+
+  rows.sort((a,b) => {
+    if (a.dist == null && b.dist == null) return a.team.localeCompare(b.team);
+    if (a.dist == null) return 1;
+    if (b.dist == null) return -1;
+    return a.dist - b.dist;
+  });
+
+  let html =
+    `<table><thead><tr>
+      <th>#</th><th>Team</th><th>Guess</th><th>Distance</th><th>Actions</th>
+    </tr></thead><tbody>`;
+
+  rows.forEach((r,i) => {
+    const c = colorForTeam(r.team);
+    const d = r.dist == null ? "–" : r.dist.toFixed(1)+" km";
+    const encodedTeam = encodeURIComponent(r.team);
+    html += `
+      <tr>
+        <td>${i+1}</td>
+        <td><span class="dot" style="background:${c}"></span>${r.team}</td>
+        <td>${fmt(r.lat, r.lng)}</td>
+        <td>${d}</td>
+        <td>
+          <button
+            style="background:#fee2e2;color:#b91c1c;font-size:11px;padding:4px 6px;"
+            onclick="deleteGuess('${encodedTeam}')"
+          >Delete</button>
+        </td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table>`;
+
+  $('results').innerHTML = rows.length ? html :
+    `<div style="color:#6b7280;font-size:12px;">No guesses yet.</div>`;
+}
+
+// --------------------
+// LEADERBOARD
+// --------------------
+async function updateLeaderboard() {
+  const totals = new Map();
+  const award = [3,2,1];
+
+  for (const r of roundsCache) {
+    if (!r.target) continue;
+
+    const res = await fetch('/api/guesses?roundId='+r.id);
+    const data = await res.json();
+
+    const arr = [];
+    for (const [team, g] of Object.entries(data)) {
+      const d = hav(g.lat, g.lng, r.target.lat, r.target.lng);
+      arr.push({ team, dist: d });
+    }
+
+    arr.sort((a,b) => a.dist - b.dist);
+
+    for (let i=0; i<Math.min(3, arr.length); i++) {
+      totals.set(arr[i].team, (totals.get(arr[i].team)||0) + award[i]);
+    }
+  }
+
+  const sorted = Array.from(totals.entries())
+    .map(([team, pts]) => ({ team, pts }))
+    .sort((a,b) => b.pts - a.pts || a.team.localeCompare(b.team));
+
+  let html =
+    `<table><thead><tr>
+      <th>#</th><th>Team</th><th>Points</th>
+    </tr></thead><tbody>`;
+
+  sorted.forEach((t,i) => {
+    const c = colorForTeam(t.team);
+    html += `
+      <tr>
+        <td>${i+1}</td>
+        <td><span class="dot" style="background:${c}"></span>${t.team}</td>
+        <td>${t.pts}</td>
+      </tr>
+    `;
+  });
+
+  html += `</tbody></table>`;
+
+  $('leaderboard').innerHTML = sorted.length ? html :
+    `<div style="font-size:12px;color:#6b7280;">No scores yet.</div>`;
+}
+
+// --------------------
+// AUTO REFRESH
+// --------------------
+setInterval(refreshGuesses, 2000);
+setInterval(updateLeaderboard, 5000);
+
+// --------------------
+// INIT
+// --------------------
+loadRounds();
+
+</script>
+</body>
+</html>

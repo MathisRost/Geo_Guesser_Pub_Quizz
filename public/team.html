@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mariki Pub Quizz – Team</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      padding: 12px;
+    }
+    h1 {
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+    label {
+      font-size: 13px;
+      display: block;
+      margin-top: 8px;
+    }
+    input, select, button {
+      font-family: inherit;
+      font-size: 14px;
+    }
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      box-sizing: border-box;
+      margin-top: 4px;
+    }
+    button {
+      margin-top: 12px;
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      background: #0ea5e9;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .msg {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+    .rounds-box {
+      margin-top: 18px;
+      padding-top: 8px;
+      border-top: 1px solid #e5e7eb;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+    th, td {
+      padding: 4px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    th {
+      font-weight: 600;
+      font-size: 12px;
+      color: #374151;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-open {
+      background: #22c55e;
+    }
+    .status-closed {
+      background: #ef4444;
+    }
+    .status-text {
+      font-size: 12px;
+    }
+    .guess-yes {
+      color: #16a34a;
+      font-size: 12px;
+    }
+    .guess-no {
+      color: #6b7280;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mariki Pub Quizz – Team</h1>
+
+  <label>
+    Team name
+    <input id="team-name" type="text" placeholder="Geoguesser Pro Team" />
+  </label>
+
+  <label>
+    Round <span class="hint">(only “open” rounds accept guesses)</span>
+    <select id="round-select"></select>
+  </label>
+
+  <label>
+    Latitude
+    <input id="lat" type="number" step="any" placeholder="e.g. -22.95190" />
+  </label>
+
+  <label>
+    Longitude
+    <input id="lng" type="number" step="any" placeholder="e.g. -043.21050" />
+  </label>
+
+  <button id="submit">Send guess</button>
+
+  <div id="msg" class="msg">
+    Guess pending – fill in your team, round, and coordinates, then press “Send guess”.
+  </div>
+
+  <div class="rounds-box">
+    <strong style="font-size:14px;">Rounds overview</strong>
+    <div id="rounds-table"></div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    // Persistent deviceId for this browser
+    let deviceId = localStorage.getItem('marikiDeviceId');
+    if (!deviceId) {
+      if (window.crypto && crypto.randomUUID) {
+        deviceId = crypto.randomUUID();
+      } else {
+        deviceId = 'dev-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      }
+      localStorage.setItem('marikiDeviceId', deviceId);
+    }
+
+    let roundsCache = [];
+    // myGuesses[roundId] = { roundId, roundName, teamName, lat, lng, ts }
+    let myGuesses = {};
+
+    function renderRoundsTable() {
+      const box = $('rounds-table');
+
+      if (!roundsCache.length) {
+        box.innerHTML = '<div style="font-size:12px;color:#6b7280;">No rounds available yet.</div>';
+        return;
+      }
+
+      let html = '<table><thead><tr><th>Round</th><th>Status</th><th>Your guess</th></tr></thead><tbody>';
+      roundsCache.forEach(r => {
+        const isOpen = r.isOpen;
+        const dotClass = isOpen ? 'status-open' : 'status-closed';
+        const statusText = isOpen ? 'Open' : 'Closed';
+
+        const my = myGuesses[r.id];
+        let guessCell;
+        if (my) {
+          guessCell = `<span class="guess-yes">✅ Sent as <strong>${my.teamName}</strong> (${(+my.lat).toFixed(5)}, ${(+my.lng).toFixed(5)})</span>`;
+        } else {
+          guessCell = `<span class="guess-no">–</span>`;
+        }
+
+        html += `<tr>
+          <td>${r.name}</td>
+          <td><span class="status-dot ${dotClass}"></span><span class="status-text">${statusText}</span></td>
+          <td>${guessCell}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      box.innerHTML = html;
+    }
+
+    async function loadRounds(preserveSelection = true) {
+      try {
+        const res = await fetch('/api/rounds');
+        if (!res.ok) throw new Error('Failed to load rounds');
+        const rounds = await res.json();
+        roundsCache = rounds;
+
+        const sel = $('round-select');
+        const previousId = preserveSelection ? sel.value : null;
+
+        sel.innerHTML = '';
+
+        if (rounds.length === 0) {
+          const opt = document.createElement('option');
+          opt.textContent = 'No rounds available';
+          opt.disabled = true;
+          sel.appendChild(opt);
+          renderRoundsTable();
+          return;
+        }
+
+        rounds.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r.id;
+          opt.textContent = r.name + (r.isOpen ? ' (open)' : ' (closed)');
+          opt.dataset.open = r.isOpen ? 'true' : 'false';
+          sel.appendChild(opt);
+        });
+
+        if (previousId && rounds.some(r => r.id === previousId)) {
+          sel.value = previousId;
+        } else {
+          sel.value = rounds[0].id;
+        }
+
+        renderRoundsTable();
+      } catch (err) {
+        console.error(err);
+        $('msg').textContent = 'Could not load rounds. Please try again later.';
+      }
+    }
+
+    async function loadMyGuesses() {
+      try {
+        const res = await fetch('/api/my-guesses?deviceId=' + encodeURIComponent(deviceId));
+        if (!res.ok) throw new Error('Failed to load guesses');
+        const arr = await res.json();
+        myGuesses = {};
+        arr.forEach(g => {
+          myGuesses[g.roundId] = g;
+        });
+        renderRoundsTable();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    $('submit').addEventListener('click', async () => {
+      const teamName = $('team-name').value.trim();
+      const sel = $('round-select');
+      const opt = sel.selectedOptions[0];
+
+      if (!opt) {
+        $('msg').textContent = 'No round selected.';
+        return;
+      }
+
+      const roundId = opt.value;
+      const isOpen = opt.dataset.open === 'true';
+
+      let lat = parseFloat($('lat').value);
+      let lng = parseFloat($('lng').value);
+
+      if (!teamName) {
+        $('msg').textContent = 'Please enter a team name.';
+        return;
+      }
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        $('msg').textContent = 'Please enter numeric coordinates.';
+        return;
+      }
+      if (!isOpen) {
+        $('msg').textContent = 'This round is currently closed. Please choose an open round.';
+        return;
+      }
+
+      // Round to 5 decimals before submitting
+      lat = Math.round(lat * 1e5) / 1e5;
+      lng = Math.round(lng * 1e5) / 1e5;
+
+      $('submit').disabled = true;
+      $('msg').textContent = 'Sending guess…';
+
+      try {
+        const res = await fetch('/api/guess', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roundId, teamName, lat, lng, deviceId })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          $('msg').textContent = data.error || 'Server error. Try again.';
+        } else {
+          $('msg').textContent = `Guess sent ✅ as "${teamName}" (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+          await loadMyGuesses(); // update table confirmation
+        }
+      } catch (err) {
+        console.error(err);
+        $('msg').textContent = 'Failed to send guess. Check your connection and try again.';
+      } finally {
+        $('submit').disabled = false;
+      }
+    });
+
+    // Initial load & periodic updates
+    (async function init() {
+      await loadRounds(false);
+      await loadMyGuesses();
+    })();
+
+    setInterval(() => {
+      loadRounds(true);
+      loadMyGuesses();
+    }, 5000);
+  </script>
+</body>
+</html>

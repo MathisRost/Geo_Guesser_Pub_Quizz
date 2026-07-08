@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+quiz-state.backup-*.json

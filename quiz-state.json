@@ -1,0 +1,194 @@
+{
+  "rounds": [
+    {
+      "id": "pubquiz-20260708-r01",
+      "name": "Round 1",
+      "isOpen": false,
+      "target": {
+        "lat": -16.472982042686226,
+        "lng": -68.20070636048612
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r02",
+      "name": "Round 2",
+      "isOpen": false,
+      "target": {
+        "lat": 8.335319357971409,
+        "lng": 98.50206377262863
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r03",
+      "name": "Round 3",
+      "isOpen": false,
+      "target": {
+        "lat": 59.27155368444324,
+        "lng": 17.90024208793149
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r04",
+      "name": "Round 4",
+      "isOpen": false,
+      "target": {
+        "lat": 41.85257734745,
+        "lng": 12.550054157821346
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r05",
+      "name": "Round 5",
+      "isOpen": false,
+      "target": {
+        "lat": 8.335319357971409,
+        "lng": 98.50206377262863
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r06",
+      "name": "Round 6",
+      "isOpen": false,
+      "target": {
+        "lat": 68.147507,
+        "lng": 14.199747
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r07",
+      "name": "Round 7",
+      "isOpen": false,
+      "target": {
+        "lat": 62.306231,
+        "lng": -7.08449
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r08",
+      "name": "Round 8",
+      "isOpen": false,
+      "target": {
+        "lat": 40.71574272105955,
+        "lng": -74.01417942055615
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r09",
+      "name": "Round 9",
+      "isOpen": false,
+      "target": {
+        "lat": -22.92778804824327,
+        "lng": -43.18390889500454
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r10",
+      "name": "Round 10",
+      "isOpen": false,
+      "target": {
+        "lat": 45.33983354612484,
+        "lng": 14.381084875534215
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r11",
+      "name": "Round 11",
+      "isOpen": false,
+      "target": {
+        "lat": 51.53208992267522,
+        "lng": -0.234082510643219
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r12",
+      "name": "Round 12",
+      "isOpen": false,
+      "target": {
+        "lat": 23.022402120254814,
+        "lng": 120.26066963023965
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r13",
+      "name": "Round 13",
+      "isOpen": false,
+      "target": {
+        "lat": 32.64422330253842,
+        "lng": -16.913782713265608
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r14",
+      "name": "Round 14",
+      "isOpen": false,
+      "target": {
+        "lat": 53.54367612369615,
+        "lng": 9.988850244514348
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r15",
+      "name": "Round 15",
+      "isOpen": false,
+      "target": {
+        "lat": 43.841825,
+        "lng": 20.038713
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r16",
+      "name": "Round 16",
+      "isOpen": false,
+      "target": {
+        "lat": -29.82823142713393,
+        "lng": 31.030600824575636
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r17",
+      "name": "Round 17",
+      "isOpen": false,
+      "target": {
+        "lat": 27.471414598135357,
+        "lng": 89.64103296153267
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r18",
+      "name": "Round 18",
+      "isOpen": false,
+      "target": {
+        "lat": 40.84148523241527,
+        "lng": 14.245129207341702
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r19",
+      "name": "Round 19",
+      "isOpen": false,
+      "target": {
+        "lat": -22.97029546892021,
+        "lng": -43.180612250021866
+      }
+    },
+    {
+      "id": "pubquiz-20260708-r20",
+      "name": "Round 20",
+      "isOpen": false,
+      "target": {
+        "lat": 60.71877168329524,
+        "lng": -46.02606912509111
+      }
+    },
+    {
+      "id": "pubquiz-20260708-tiebreak",
+      "name": "Tiebreak",
+      "isOpen": false,
+      "target": {
+        "lat": 45.172068,
+        "lng": 17.992825
+      }
+    }
+  ],
+  "guesses": {}
+}
