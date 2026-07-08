@@ -180,6 +180,57 @@ function hav(lat1, lon1, lat2, lon2) {
 }
 
 // --------------------
+// GEOGUESSR-STYLE SCORING
+// --------------------
+const MAX_BASE_POINTS = 5000;
+const EXACT_BONUS_POINTS = 1000;
+const EXACT_BONUS_DISTANCE_KM = 0.05; // 50 m
+const WORLD_DIAGONAL_KM = 20015.0868;
+
+function isScoredRound(round) {
+  return round && !/tie\s*break|tiebreak/i.test(round.name);
+}
+
+function scoredTargetRounds() {
+  return roundsCache.filter(r => isScoredRound(r) && r.target);
+}
+
+function mapDiagonalKm() {
+  const targetRounds = scoredTargetRounds();
+  if (targetRounds.length < 2) return WORLD_DIAGONAL_KM;
+
+  const lats = targetRounds.map(r => r.target.lat);
+  const lngs = targetRounds.map(r => r.target.lng);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const diagonal = hav(minLat, minLng, maxLat, maxLng);
+
+  return Number.isFinite(diagonal) && diagonal > 0 ? diagonal : WORLD_DIAGONAL_KM;
+}
+
+function scoreForDistance(distanceKm, diagonalKm) {
+  if (!Number.isFinite(distanceKm)) return null;
+  const safeDiagonal = Number.isFinite(diagonalKm) && diagonalKm > 0
+    ? diagonalKm
+    : WORLD_DIAGONAL_KM;
+  const base = Math.round(MAX_BASE_POINTS * Math.exp(-10 * distanceKm / safeDiagonal));
+  const bonus = distanceKm <= EXACT_BONUS_DISTANCE_KM ? EXACT_BONUS_POINTS : 0;
+  return Math.max(0, Math.min(MAX_BASE_POINTS, base)) + bonus;
+}
+
+function fmtDistance(distanceKm) {
+  if (!Number.isFinite(distanceKm)) return "–";
+  if (distanceKm < 1) return Math.round(distanceKm * 1000) + " m";
+  return distanceKm.toFixed(1) + " km";
+}
+
+function fmtPoints(points) {
+  return Number.isFinite(points) ? points.toLocaleString() : "–";
+}
+
+// --------------------
 // LOAD ROUNDS
 // --------------------
 async function loadRounds() {
@@ -371,6 +422,8 @@ async function refreshGuesses() {
 
   const round = roundsCache.find(r => r.id === currentRoundId);
   const tgt = round && round.target ? round.target : null;
+  const diagonalKm = mapDiagonalKm();
+  const roundCountsForScore = isScoredRound(round);
 
   const rows = [];
   const points = [];
@@ -403,8 +456,9 @@ async function refreshGuesses() {
       mapLayers.push(line);
     }
 
-    let dist = tgt ? hav(g.lat, g.lng, tgt.lat, tgt.lng) : null;
-    rows.push({ team, lat:g.lat, lng:g.lng, dist });
+    const dist = tgt ? hav(g.lat, g.lng, tgt.lat, tgt.lng) : null;
+    const score = tgt && roundCountsForScore ? scoreForDistance(dist, diagonalKm) : null;
+    rows.push({ team, lat:g.lat, lng:g.lng, dist, score });
   }
 
   if (points.length && !userAdjustedView) {
@@ -413,6 +467,11 @@ async function refreshGuesses() {
   }
 
   rows.sort((a,b) => {
+    if (a.score != null && b.score != null) {
+      return b.score - a.score || a.dist - b.dist || a.team.localeCompare(b.team);
+    }
+    if (a.score != null) return -1;
+    if (b.score != null) return 1;
     if (a.dist == null && b.dist == null) return a.team.localeCompare(b.team);
     if (a.dist == null) return 1;
     if (b.dist == null) return -1;
@@ -421,19 +480,19 @@ async function refreshGuesses() {
 
   let html =
     `<table><thead><tr>
-      <th>#</th><th>Team</th><th>Guess</th><th>Distance</th><th>Actions</th>
+      <th>#</th><th>Team</th><th>Guess</th><th>Distance</th><th>Points</th><th>Actions</th>
     </tr></thead><tbody>`;
 
   rows.forEach((r,i) => {
     const c = colorForTeam(r.team);
-    const d = r.dist == null ? "–" : r.dist.toFixed(1)+" km";
     const encodedTeam = encodeURIComponent(r.team);
     html += `
       <tr>
         <td>${i+1}</td>
         <td><span class="dot" style="background:${c}"></span>${r.team}</td>
         <td>${fmt(r.lat, r.lng)}</td>
-        <td>${d}</td>
+        <td>${fmtDistance(r.dist)}</td>
+        <td>${fmtPoints(r.score)}</td>
         <td>
           <button
             style="background:#fee2e2;color:#b91c1c;font-size:11px;padding:4px 6px;"
@@ -454,24 +513,18 @@ async function refreshGuesses() {
 // --------------------
 async function updateLeaderboard() {
   const totals = new Map();
-  const award = [3,2,1];
+  const diagonalKm = mapDiagonalKm();
 
   for (const r of roundsCache) {
-    if (!r.target) continue;
+    if (!r.target || !isScoredRound(r)) continue;
 
     const res = await fetch('/api/guesses?roundId='+r.id);
     const data = await res.json();
 
-    const arr = [];
     for (const [team, g] of Object.entries(data)) {
       const d = hav(g.lat, g.lng, r.target.lat, r.target.lng);
-      arr.push({ team, dist: d });
-    }
-
-    arr.sort((a,b) => a.dist - b.dist);
-
-    for (let i=0; i<Math.min(3, arr.length); i++) {
-      totals.set(arr[i].team, (totals.get(arr[i].team)||0) + award[i]);
+      const pts = scoreForDistance(d, diagonalKm);
+      totals.set(team, (totals.get(team)||0) + pts);
     }
   }
 
@@ -497,7 +550,11 @@ async function updateLeaderboard() {
 
   html += `</tbody></table>`;
 
-  $('leaderboard').innerHTML = sorted.length ? html :
+  const scale = `<div style="font-size:11px;color:#6b7280;margin-top:4px;">
+    Scoring: ${MAX_BASE_POINTS} * exp(-10 * distance / ${diagonalKm.toFixed(1)} km), +${EXACT_BONUS_POINTS} within 50 m. Tiebreak excluded from totals.
+  </div>`;
+
+  $('leaderboard').innerHTML = sorted.length ? scale + html :
     `<div style="font-size:12px;color:#6b7280;">No scores yet.</div>`;
 }
 
