@@ -153,6 +153,28 @@
     let roundsCache = [];
     // myGuesses[roundId] = { roundId, roundName, teamName, lat, lng, ts }
     let myGuesses = {};
+    let selectedRoundId = null;
+
+    function clearCoordinateInputs() {
+      $('lat').value = '';
+      $('lng').value = '';
+    }
+
+    function rememberSelectedRound(clearOnChange = false) {
+      const sel = $('round-select');
+      const roundId = sel.value;
+      if (!roundId) {
+        selectedRoundId = null;
+        return;
+      }
+
+      if (clearOnChange && selectedRoundId && selectedRoundId !== roundId) {
+        clearCoordinateInputs();
+        $('msg').textContent = 'Round changed - enter coordinates for the selected round.';
+      }
+
+      selectedRoundId = roundId;
+    }
 
     function renderRoundsTable() {
       const box = $('rounds-table');
@@ -203,6 +225,7 @@
           opt.textContent = 'No rounds available';
           opt.disabled = true;
           sel.appendChild(opt);
+          selectedRoundId = null;
           renderRoundsTable();
           return;
         }
@@ -221,6 +244,7 @@
           sel.value = rounds[0].id;
         }
 
+        rememberSelectedRound(preserveSelection);
         renderRoundsTable();
       } catch (err) {
         console.error(err);
@@ -242,6 +266,10 @@
         console.error(err);
       }
     }
+
+    $('round-select').addEventListener('change', () => {
+      rememberSelectedRound(true);
+    });
 
     $('submit').addEventListener('click', async () => {
       const teamName = $('team-name').value.trim();
