@@ -100,6 +100,47 @@
       color: #6b7280;
       font-size: 12px;
     }
+    .map-picker {
+      margin-top: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+      background: white;
+    }
+    .map-picker summary {
+      padding: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .map-picker summary::-webkit-details-marker {
+      display: none;
+    }
+    .map-picker summary::after {
+      content: "Open";
+      color: #0ea5e9;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .map-picker[open] summary::after {
+      content: "Close";
+    }
+    #team-map {
+      height: 320px;
+      width: 100%;
+      border-top: 1px solid #e5e7eb;
+      background: #f3f4f6;
+    }
+    .map-picker-status {
+      padding: 8px 10px 10px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 12px;
+      color: #6b7280;
+    }
   </style>
 </head>
 <body>
@@ -124,6 +165,14 @@
     Longitude
     <input id="lng" type="number" step="any" placeholder="e.g. -043.21050" />
   </label>
+
+  <details id="map-picker" class="map-picker">
+    <summary>Pick on map</summary>
+    <div id="team-map"></div>
+    <div id="map-picker-status" class="map-picker-status">
+      Tap the map to place your guess.
+    </div>
+  </details>
 
   <button id="submit">Send guess</button>
 
@@ -154,10 +203,159 @@
     // myGuesses[roundId] = { roundId, roundName, teamName, lat, lng, ts }
     let myGuesses = {};
     let selectedRoundId = null;
+    let leafletLoadPromise = null;
+    let teamMap = null;
+    let teamMarker = null;
+    const DEFAULT_MAP_CENTER = [20, 0];
+    const DEFAULT_MAP_ZOOM = 2;
+    const PICKED_MAP_ZOOM = 10;
 
     function clearCoordinateInputs() {
       $('lat').value = '';
       $('lng').value = '';
+      clearMapPin();
+    }
+
+    function validCoordinatePair() {
+      const lat = parseFloat($('lat').value);
+      const lng = parseFloat($('lng').value);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+      return { lat, lng };
+    }
+
+    function coordinateText(lat, lng) {
+      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    }
+
+    function setCoordinateInputs(lat, lng) {
+      $('lat').value = lat.toFixed(5);
+      $('lng').value = lng.toFixed(5);
+    }
+
+    function updateMapPickerStatus(text) {
+      $('map-picker-status').textContent = text;
+    }
+
+    function clearMapPin() {
+      if (teamMap && teamMarker) {
+        teamMap.removeLayer(teamMarker);
+      }
+      teamMarker = null;
+      updateMapPickerStatus('Tap the map to place your guess.');
+    }
+
+    function loadLeaflet() {
+      if (window.L) return Promise.resolve();
+      if (leafletLoadPromise) return leafletLoadPromise;
+
+      leafletLoadPromise = new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        link.crossOrigin = '';
+        document.head.appendChild(link);
+
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.crossOrigin = '';
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Could not load map assets'));
+        document.head.appendChild(script);
+      });
+
+      return leafletLoadPromise;
+    }
+
+    async function ensureTeamMap() {
+      try {
+        updateMapPickerStatus('Loading map...');
+        await loadLeaflet();
+
+        if (!teamMap) {
+          teamMap = L.map('team-map', { worldCopyJump: true })
+            .setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
+
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(teamMap);
+
+          teamMap.on('click', e => {
+            setMapPin(e.latlng.lat, e.latlng.lng, {
+              updateInputs: true,
+              recenter: false,
+            });
+          });
+        }
+
+        setTimeout(() => teamMap.invalidateSize(), 0);
+
+        const coords = validCoordinatePair();
+        if (coords) {
+          setMapPin(coords.lat, coords.lng, {
+            updateInputs: false,
+            recenter: true,
+          });
+        } else {
+          updateMapPickerStatus('Tap the map to place your guess.');
+        }
+      } catch (err) {
+        console.error(err);
+        updateMapPickerStatus('Could not load the map. You can still enter coordinates manually.');
+      }
+    }
+
+    function setMapPin(lat, lng, options = {}) {
+      if (!teamMap || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const roundedLat = Math.round(lat * 1e5) / 1e5;
+      const roundedLng = Math.round(lng * 1e5) / 1e5;
+      const point = [roundedLat, roundedLng];
+
+      if (!teamMarker) {
+        teamMarker = L.marker(point, { draggable: true }).addTo(teamMap);
+        teamMarker.on('dragend', () => {
+          const pos = teamMarker.getLatLng();
+          setMapPin(pos.lat, pos.lng, {
+            updateInputs: true,
+            recenter: false,
+          });
+        });
+      } else {
+        teamMarker.setLatLng(point);
+      }
+
+      if (options.updateInputs) {
+        setCoordinateInputs(roundedLat, roundedLng);
+      }
+
+      if (options.recenter) {
+        teamMap.setView(point, Math.max(teamMap.getZoom(), PICKED_MAP_ZOOM));
+      }
+
+      updateMapPickerStatus('Selected: ' + coordinateText(roundedLat, roundedLng));
+    }
+
+    function syncMapFromInputs() {
+      if (!teamMap) return;
+      const latRaw = $('lat').value.trim();
+      const lngRaw = $('lng').value.trim();
+      if (!latRaw && !lngRaw) {
+        clearMapPin();
+        return;
+      }
+
+      const coords = validCoordinatePair();
+      if (!coords) {
+        updateMapPickerStatus('Enter valid latitude and longitude to move the pin.');
+        return;
+      }
+
+      setMapPin(coords.lat, coords.lng, {
+        updateInputs: false,
+        recenter: true,
+      });
     }
 
     function rememberSelectedRound(clearOnChange = false) {
@@ -270,6 +468,15 @@
     $('round-select').addEventListener('change', () => {
       rememberSelectedRound(true);
     });
+
+    $('map-picker').addEventListener('toggle', () => {
+      if ($('map-picker').open) {
+        ensureTeamMap();
+      }
+    });
+
+    $('lat').addEventListener('input', syncMapFromInputs);
+    $('lng').addEventListener('input', syncMapFromInputs);
 
     $('submit').addEventListener('click', async () => {
       const teamName = $('team-name').value.trim();
